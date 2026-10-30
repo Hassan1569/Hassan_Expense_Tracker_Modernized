@@ -1,0 +1,35 @@
+<?php
+require_once 'app.php';
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='add_expense') {
+    $cat=(int)($_POST['expense_category_id']??0); $amount=(float)($_POST['amount_spent']??0); $desc=trim($_POST['expense_description']??''); $date=$_POST['expense_date']??date('Y-m-d');
+    if($cat<=0 || $amount<=0 || $desc===''){ flash('error','Please complete all expense fields.'); redirect('index.php'); }
+    $stmt=mysqli_prepare($con,'INSERT INTO expense_tbl(expense_category_id,expense_description,expense_date,created_at,deleted,amount_spent) VALUES(?,?,?, ?,0,?)');
+    $created=date('Y-m-d'); $amountText=(string)$amount; mysqli_stmt_bind_param($stmt,'issss',$cat,$desc,$date,$created,$amountText);
+    if(mysqli_stmt_execute($stmt)) flash('success','Expense recorded successfully.'); else flash('error','Unable to record the expense.');
+    redirect('index.php');
+}
+$stats = dashboard_stats($con);
+$cats = category_rows($con);
+$recent = mysqli_query($con, "SELECT e.*, c.expense_category_name FROM expense_tbl e JOIN expense_category_tbl c ON c.expense_category_id=e.expense_category_id ORDER BY e.expense_date DESC,e.expense_id DESC LIMIT 6");
+render_header('Dashboard','index.php');
+?>
+<div class="page-head"><div><div class="eyebrow">Financial overview</div><h1>Good to see you, Hassan.</h1><p>Track budgets, spending and your latest transactions from one place.</p></div><button class="btn btn-primary" onclick="document.getElementById('expenseModal').style.display='grid'"><i class="fa fa-plus"></i> Record expense</button></div>
+<div class="stats">
+<div class="stat-card"><div class="stat-top"><span>Total budget</span><span class="stat-icon"><i class="fa fa-bullseye"></i></span></div><div class="stat-value">PKR <?= money($stats['budget']) ?></div><div class="stat-sub">Across <?= (int)$stats['categories'] ?> categories</div></div>
+<div class="stat-card"><div class="stat-top"><span>Total spent</span><span class="stat-icon"><i class="fa fa-credit-card"></i></span></div><div class="stat-value">PKR <?= money($stats['spent']) ?></div><div class="stat-sub"><?= (int)$stats['transactions'] ?> recorded transactions</div></div>
+<div class="stat-card"><div class="stat-top"><span>Remaining</span><span class="stat-icon"><i class="fa fa-pie-chart"></i></span></div><div class="stat-value <?= $stats['balance']<0?'kpi-negative':'kpi-positive' ?>">PKR <?= money($stats['balance']) ?></div><div class="stat-sub">Budget minus actual spending</div></div>
+<div class="stat-card"><div class="stat-top"><span>Average expense</span><span class="stat-icon"><i class="fa fa-line-chart"></i></span></div><div class="stat-value">PKR <?= money($stats['transactions'] ? $stats['spent']/$stats['transactions'] : 0) ?></div><div class="stat-sub">Per recorded transaction</div></div>
+</div>
+<div class="grid">
+<section class="card"><div class="card-head"><div><div class="card-title">Budget health</div><div class="card-sub">Spending against each category budget</div></div><a class="btn btn-light" href="expense_category.php">Manage</a></div><div class="budget-list">
+<?php if(mysqli_num_rows($cats)): while($c=mysqli_fetch_assoc($cats)): $pct=$c['amount']>0?min(100,((float)$c['spent']/(float)$c['amount'])*100):0; $over=(float)$c['spent']>(float)$c['amount']; ?>
+<div class="budget-row"><div class="budget-name"><?= e($c['expense_category_name']) ?></div><div class="progress <?= $over?'over':'' ?>"><span style="width:<?= $pct ?>%"></span></div><div class="budget-meta">PKR <?= money($c['spent']) ?> / <?= money($c['amount']) ?></div></div>
+<?php endwhile; else: ?><div class="empty">No budgets yet. Create your first category to start tracking.</div><?php endif; ?></div></section>
+<section class="card"><div class="card-head"><div><div class="card-title">Spending snapshot</div><div class="card-sub">Latest 6 transactions</div></div></div><div class="mini-chart">
+<?php $chart=mysqli_query($con,"SELECT DATE_FORMAT(expense_date,'%d %b') label, SUM(amount_spent) total FROM expense_tbl GROUP BY expense_date ORDER BY expense_date DESC LIMIT 6"); $points=[]; while($x=mysqli_fetch_assoc($chart))$points[]=$x; $max=0; foreach($points as $x)$max=max($max,(float)$x['total']); $points=array_reverse($points); if(!$points) echo '<div class="empty">Add expenses to see your spending trend.</div>'; foreach($points as $x): $h=$max?max(12,((float)$x['total']/$max)*145):12; ?><div class="bar-wrap"><div class="bar" style="--h:<?= $h ?>px" title="PKR <?= money($x['total']) ?>"></div><div class="bar-label"><?= e($x['label']) ?></div></div><?php endforeach; ?></div></section>
+</div>
+<section class="card table-card"><div class="table-toolbar"><div><div class="card-title">Recent transactions</div><div class="card-sub">Your latest recorded expenses</div></div><a class="btn btn-light" href="expense_report.php">View all <i class="fa fa-arrow-right"></i></a></div><div class="table-wrap"><table class="table"><thead><tr><th>Category</th><th>Description</th><th>Date</th><th>Amount</th></tr></thead><tbody>
+<?php if(mysqli_num_rows($recent)): while($r=mysqli_fetch_assoc($recent)): ?><tr><td><strong><?= e($r['expense_category_name']) ?></strong></td><td class="muted"><?= e($r['expense_description']) ?></td><td><?= e(date('d M Y',strtotime($r['expense_date']))) ?></td><td><strong>PKR <?= money($r['amount_spent']) ?></strong></td></tr><?php endwhile; else: ?><tr><td colspan="4" class="empty">No transactions recorded yet.</td></tr><?php endif; ?></tbody></table></div></section>
+
+<div class="modal" id="expenseModal" style="display:none"><div class="modal-box"><div class="modal-head"><div><div class="card-title">Record an expense</div><div class="card-sub">Add a transaction to your budget tracking.</div></div><button class="close" onclick="document.getElementById('expenseModal').style.display='none'">&times;</button></div><form method="post"><input type="hidden" name="action" value="add_expense"><div class="form-grid"><div class="form-group"><label>Category</label><select class="form-control" name="expense_category_id" required><option value="">Choose category</option><?php $ec=category_rows($con); while($c=mysqli_fetch_assoc($ec)): ?><option value="<?= (int)$c['expense_category_id'] ?>"><?= e($c['expense_category_name']) ?></option><?php endwhile; ?></select></div><div class="form-group"><label>Amount (PKR)</label><input class="form-control" type="number" min="0.01" step="0.01" name="amount_spent" required placeholder="2500"></div><div class="form-group"><label>Description</label><input class="form-control" name="expense_description" required placeholder="What did you spend on?"></div><div class="form-group"><label>Date</label><input class="form-control" type="date" name="expense_date" value="<?= date('Y-m-d') ?>" required></div></div><div class="form-actions"><button type="button" class="btn btn-light" onclick="document.getElementById('expenseModal').style.display='none'">Cancel</button><button class="btn btn-primary"><i class="fa fa-check"></i> Save expense</button></div></form></div></div>
+<?php render_footer(); ?>

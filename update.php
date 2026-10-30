@@ -1,0 +1,7 @@
+<?php
+require_once 'app.php';
+$id=(int)($_GET['expense_category_id']??0); if(!$id) redirect('expense_category.php');
+$r=mysqli_query($con,"SELECT * FROM expense_category_tbl WHERE expense_category_id=$id");$row=mysqli_fetch_assoc($r);if(!$row) redirect('expense_category.php');
+if($_SERVER['REQUEST_METHOD']==='POST'){ $name=trim($_POST['expense_name']??'');$amount=(float)($_POST['amount']??0);$stmt=mysqli_prepare($con,'UPDATE expense_category_tbl SET amount=?,expense_category_name=? WHERE expense_category_id=?');mysqli_stmt_bind_param($stmt,'dsi',$amount,$name,$id);mysqli_stmt_execute($stmt);flash('success','Budget updated.');redirect('expense_category.php'); }
+render_header('Edit Budget','expense_category.php'); ?>
+<div class="page-head"><div><div class="eyebrow">Edit</div><h1>Update budget</h1><p>Modify <?= e($row['expense_category_name']) ?>.</p></div></div><section class="card"><form method="post"><div class="form-grid"><div class="form-group"><label>Category name</label><input class="form-control" name="expense_name" value="<?= e($row['expense_category_name']) ?>" required></div><div class="form-group"><label>Budget amount (PKR)</label><input class="form-control" type="number" name="amount" value="<?= e($row['amount']) ?>" step="0.01" min="0" required></div></div><div class="form-actions"><a class="btn btn-light" href="expense_category.php">Cancel</a><button class="btn btn-primary">Save changes</button></div></form></section><?php render_footer(); ?>
